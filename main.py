@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field, field_validator
 
 # Load .env FIRST so environment variables are available everywhere
@@ -175,20 +175,28 @@ async def run_cold_mail_agent(body: QueryRequest):
         agent = build_agent(max_iterations=body.max_iterations)
         goal = (
             f"Find an internship or job opportunity matching: '{body.query}'. "
-            "Search the web, pick the most relevant opportunity, scrape the company website, "
-            "and write a high-impact personalized cold outreach email. "
+            "Search the web, pick the most relevant opportunity, scrape the company website. "
+            "Extract the best recruiter or careers contact email from the website (do NOT ask the user). "
+            "Write a high-impact personalized cold outreach email tailored to the candidate's background. "
             f"Candidate background / resume summary: {body.resume}"
         )
         final_state = agent.run(goal=goal, on_event=capture_event)
 
-        # Parse final answer
+        # Parse final answer — extract structured fields if available
         answer = None
+        recipient_email = None
+        subject = None
+        body_text = None
+
         for msg in reversed(final_state.message):
             if msg.role == "assistant":
                 try:
                     parsed = _json.loads(msg.content)
                     if "answer" in parsed:
                         answer = parsed["answer"]
+                        recipient_email = parsed.get("recipient_email") or None
+                        subject = parsed.get("subject") or None
+                        body_text = parsed.get("body") or None
                         break
                 except Exception:
                     answer = msg.content
@@ -198,6 +206,9 @@ async def run_cold_mail_agent(body: QueryRequest):
             "status": final_state.status.value if hasattr(final_state.status, "value") else str(final_state.status),
             "iterations_used": final_state.Iteration,
             "final_answer": answer,
+            "recipient_email": recipient_email,
+            "subject": subject,
+            "body": body_text,
             "events": events,
         }
 

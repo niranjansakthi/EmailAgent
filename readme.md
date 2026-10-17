@@ -29,6 +29,20 @@ uvicorn main:app --reload --port 8000
 
 ---
 
+## 🖥️ Frontend (Emergent-style UI)
+
+The React UI in `frontend/` matches the Cold Mail Agent preview theme and talks to the FastAPI backend.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Leave **API Base URL** blank to use the dev proxy (`/api` → `http://127.0.0.1:8000`). **Dispatch** sends `/send-email` without sender credentials (server `.env` is used).
+
+---
+
 ## 📡 Frontend Integration Guide
 
 ### Base URL & CORS

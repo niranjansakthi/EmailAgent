@@ -38,10 +38,17 @@ class emailsender:
         sender_email: str = None,
         sender_password: str = None,
     ) -> str:
-        sender_email = sender_email or os.environ.get("SENDER_EMAIL")
-        sender_pass = sender_password or os.environ.get("SENDER_PASSWORD")
-        smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-        smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+        sender_email = (sender_email or os.environ.get("SENDER_EMAIL", "")).strip()
+        sender_pass = (sender_password or os.environ.get("SENDER_PASSWORD", "")).strip()
+        smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com").strip()
+        try:
+            smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+        except (ValueError, TypeError):
+            smtp_port = 587
+
+        # Strip spaces from Google App Passwords (e.g. 'abcd efgh ijkl mnop' -> 'abcdefghijklmnop')
+        if sender_pass and "gmail" in smtp_server.lower() and len(sender_pass.replace(" ", "")) == 16:
+            sender_pass = sender_pass.replace(" ", "")
 
         message = MIMEMultipart()
         message["From"] = sender_email
@@ -50,11 +57,42 @@ class emailsender:
         message.attach(MIMEText(body, "plain"))
 
         try:
-            with smtplib.SMTP(smtp_server, smtp_port) as server:
-                server.starttls()
-                server.login(sender_email, sender_pass)
-                server.sendmail(sender_email, to_email, message.as_string())
+            # Port 465 uses direct SSL; 587 and others use STARTTLS
+            if smtp_port == 465:
+                with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=15) as server:
+                    server.login(sender_email, sender_pass)
+                    server.sendmail(sender_email, to_email, message.as_string())
+            else:
+                with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
+                    server.starttls()
+                    server.login(sender_email, sender_pass)
+                    server.sendmail(sender_email, to_email, message.as_string())
+
             return json.dumps({"status": "success", "message": f"Email sent to {to_email}"})
+        except smtplib.SMTPAuthenticationError:
+            return json.dumps({
+                "status": "error",
+                "error": (
+                    "SMTP Authentication failed (535). For Gmail, you must use a 16-character "
+                    "Google App Password (https://myaccount.google.com/apppasswords) with 2-Step "
+                    "Verification enabled, NOT your standard Gmail login password."
+                ),
+            })
+        except (smtplib.SMTPConnectError, TimeoutError, OSError) as e:
+            return json.dumps({
+                "status": "error",
+                "error": f"Failed to connect to SMTP server '{smtp_server}:{smtp_port}': {str(e)}",
+            })
+        except smtplib.SMTPRecipientsRefused:
+            return json.dumps({
+                "status": "error",
+                "error": f"Recipient address rejected by SMTP server: {to_email}",
+            })
+        except smtplib.SMTPSenderRefused:
+            return json.dumps({
+                "status": "error",
+                "error": f"Sender address rejected by SMTP server: {sender_email}",
+            })
         except Exception as e:
             return json.dumps({"status": "error", "error": str(e)})
 
